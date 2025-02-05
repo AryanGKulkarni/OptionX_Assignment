@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
+	"encoding/json"
 	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
+	"strings"
 )
 
 // WebSocket upgrader
@@ -20,6 +21,11 @@ type Client struct {
 	ID         string
 	Conn       *websocket.Conn
 	LastActive time.Time
+}
+
+type Message struct {
+	ID      string `json:"id"`      // Receiver's ID
+	Message string `json:"message"` // Actual message
 }
 
 var (
@@ -52,6 +58,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Client connected:", clientID)
 
+	sendWelcomeMessage(client)
+
 	// Set pong handler
 	conn.SetPongHandler(func(appData string) error {
 		// fmt.Println("Received PONG from client:", client.ID)
@@ -70,6 +78,31 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go pingClient(client)
 }
 
+func sendWelcomeMessage(client *Client) {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+
+	// Create a list of connected client IDs
+	var clientList []string
+	for id := range clients {
+		if id == client.ID {
+			clientList = append(clientList, fmt.Sprintf("%s (You)", id))
+		} else {
+			clientList = append(clientList, id)
+		}
+	}
+
+	// Prepare and send the message
+	welcomeMessage := fmt.Sprintf(
+		"Welcome! Your Client ID: %s\nConnected Clients:\n%s",
+		client.ID, strings.Join(clientList, "\n"),
+	)
+
+	if err := client.Conn.WriteMessage(websocket.TextMessage, []byte(welcomeMessage)); err != nil {
+		fmt.Println("Error sending welcome message to", client.ID, ":", err)
+	}
+}
+
 // Listens for incoming messages from a client
 func listenForMessages(client *Client) {
 	defer disconnectClient(client)
@@ -81,10 +114,20 @@ func listenForMessages(client *Client) {
 			break
 		}
 
-		fmt.Printf("Message received from %s: %s\n", client.ID, string(message))
+		// Parse the JSON message
+		var msgData Message
+		if err := json.Unmarshal(message, &msgData); err != nil {
+			fmt.Println("Invalid message format from", client.ID, ":", err)
+			continue
+		}
 
-		// Broadcast message to all connected clients
-		broadcastMessage(messageType, message, client.ID)
+		fmt.Printf("Message received from %s to %s: %s\n", client.ID, msgData.ID, msgData.Message)
+
+		// Send the message only to the specified client
+		err = sendMessageToClient(messageType, []byte(msgData.Message), client.ID, msgData.ID)
+		if err != nil {
+			fmt.Println("Failed to send message to", msgData.ID, ":", err)
+		}
 	}
 }
 
@@ -113,20 +156,42 @@ func pingClient(client *Client) {
 }
 
 // Broadcasts messages to all connected clients
-func broadcastMessage(messageType int, message []byte, senderID string) {
+// func broadcastMessage(messageType int, message []byte, senderID string) {
+// 	clientsMu.Lock()
+// 	defer clientsMu.Unlock()
+
+// 	for id, client := range clients {
+// 		if id == senderID {
+// 			continue
+// 		}
+// 		if err := client.Conn.WriteMessage(messageType, message); err != nil {
+// 			fmt.Println("Error broadcasting to", id, ":", err)
+// 			disconnectClient(client)
+// 		}
+// 	}
+// }
+
+func sendMessageToClient(messageType int, message []byte, senderID string, receiverID string) error {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
 
-	for id, client := range clients {
-		if id == senderID {
-			continue
-		}
-		if err := client.Conn.WriteMessage(messageType, message); err != nil {
-			fmt.Println("Error broadcasting to", id, ":", err)
-			disconnectClient(client)
-		}
+	client, exists := clients[receiverID]
+	if !exists {
+		return fmt.Errorf("client %s not found", receiverID)
 	}
+
+
+	formattedMessage := fmt.Sprintf("You have message from %s: %s", senderID, string(message))
+
+	if err := client.Conn.WriteMessage(messageType, []byte(formattedMessage)); err != nil {
+		fmt.Println("Error sending message to", receiverID, ":", err)
+		disconnectClient(client)
+		return err
+	}
+
+	return nil
 }
+
 
 // Disconnects and removes a client from the list
 func disconnectClient(client *Client) {
