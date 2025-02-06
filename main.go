@@ -118,6 +118,8 @@ func listenForMessages(client *Client) {
 		var msgData Message
 		if err := json.Unmarshal(message, &msgData); err != nil {
 			fmt.Println("Invalid message format from", client.ID, ":", err)
+			errorMessage := "Invalid message format! Expected format: {\"id\": \"receiverID\", \"message\": \"Hello!\"}"
+			sendMessageToClient(websocket.TextMessage, []byte(errorMessage), "Server", client.ID)
 			continue
 		}
 
