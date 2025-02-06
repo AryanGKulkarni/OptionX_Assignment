@@ -11,6 +11,7 @@ Clone the repository to your local machine by running the following command:
 
 ```bash
 git clone https://github.com/AryanGKulkarni/OptionX_Assignment
+cd OptionX_Assignment
 ```
 
 ### 2. Install Packages
@@ -53,5 +54,5 @@ To send a message to another client, select the client you want to send the mess
 ### 8. Demo Video
 You can watch a demo video of the application here:
 
-[Demo Video](URL)
+[Demo Video](https://drive.google.com/file/d/1ODg3pVChGxu_JoRzda3iHDBA3siqq8XO/view?usp=sharing)
 
